@@ -75,6 +75,9 @@ def predict():
         return jsonify({"error": "No image uploaded"}), 400
 
     file = request.files["image"]
+
+    if file.filename == "":
+        return jsonify({"error": "Empty file uploaded"}), 400 
     
     # Validate image type
     try:
