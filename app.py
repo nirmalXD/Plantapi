@@ -8,7 +8,7 @@ import io
 import pandas as pd
 
 # Load disease information CSV once when the server starts
-file_path = "C:/Users/NIRMAL/Desktop/Plantopia/disease_info.csv"  # Update this with the correct path
+file_path = "disease_info.csv"  # Update this with the correct path
 disease_info_df = pd.read_csv(file_path, encoding="latin1")  # Use appropriate encoding
 disease_info_df["disease_name"] = disease_info_df["disease_name"].str.strip().str.lower()  # Normalize for matching
 
