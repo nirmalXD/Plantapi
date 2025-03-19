@@ -29,3 +29,4 @@ wheel==0.45.1
 gunicorn
 fastapi
 uvicorn
+python-multipart
