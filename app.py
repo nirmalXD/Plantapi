@@ -4,7 +4,7 @@ from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from PIL import Image
 import io
-
+import os
 import pandas as pd
 
 # Load disease information CSV once when the server starts
@@ -118,6 +118,6 @@ def predict():
     })
 
 
-
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    port=int(os.environ.get("PORT",4000))
+    app.run(host="0.0.0.0", port=port)
