@@ -1,29 +1,26 @@
 import torch
 from torchvision import transforms
-from flask import Flask, request, jsonify, render_template
-from flask_cors import CORS
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.responses import JSONResponse
 from PIL import Image
 import io
-import os
 import pandas as pd
 
-# Load disease information CSV once when the server starts
-file_path = "disease_info.csv"  # Update this with the correct path
-disease_info_df = pd.read_csv(file_path, encoding="latin1")  # Use appropriate encoding
-disease_info_df["disease_name"] = disease_info_df["disease_name"].str.strip().str.lower()  # Normalize for matching
+# Load disease information CSV
+file_path = "disease_info.csv"  # Update with the correct path
+disease_info_df = pd.read_csv(file_path, encoding="latin1")
+disease_info_df["disease_name"] = disease_info_df["disease_name"].str.strip().str.lower()
 
-
-# Import model from models folder
+# Import model
 from models.model import ResNet9
 
-# Initialize Flask
-app = Flask(__name__)
-CORS(app)
+# Initialize FastAPI
+app = FastAPI()
 
-# Define number of classes (adjust based on your dataset)
-num_diseases = 38  # Update according to the number of plant diseases
+# Define number of classes
+num_diseases = 38
 
-# Class names for diseases (replace these with actual names from your dataset)
+# Class names for diseases
 class_names = [
     "Apple___Apple_scab", "Apple___Black_rot", "Apple___Cedar_apple_rust", "Apple___healthy",
     "Blueberry___healthy", "Cherry_(including_sour)___Powdery_mildew", "Cherry_(including_sour)___healthy",
@@ -40,84 +37,49 @@ class_names = [
 # Load model
 model = ResNet9(in_channels=3, num_diseases=num_diseases)
 model.load_state_dict(torch.load("plant-disease-model.pth", map_location=torch.device("cpu")))
-model.eval()  # Set model to evaluation mode
+model.eval()
 
 # Image transformation
 transform = transforms.Compose([
-    transforms.Resize((256, 256)),  # Ensure the correct input size
+    transforms.Resize((256, 256)),
     transforms.ToTensor(),
 ])
 
-# @app.route("/")
-# def index():
-#     return render_template("index.html")
-
-# @app.route("/c1")
-# def c1():
-#     return render_template("c1.html")
-
-# @app.route("/predi")
-# def predi():
-#     return render_template("predi.html")
-
-# @app.route("/plantindex")
-# def plantindex():
-#     return render_template("plantindex.html")
-
-
-@app.route("/")
+@app.get("/")
 def home():
-    return "Plant Disease Prediction API is Running"
+    return {"message": "Plant Disease Prediction API is Running"}
 
-@app.route("/predict", methods=["POST"])
-def predict():
-    if "image" not in request.files:
-        return jsonify({"error": "No image uploaded"}), 400
-
-    file = request.files["image"]
-
-    if file.filename == "":
-        return jsonify({"error": "Empty file uploaded"}), 400 
-    
-    # Validate image type
+@app.post("/predict")
+async def predict(image: UploadFile = File(...)):
     try:
-        image = Image.open(io.BytesIO(file.read())).convert("RGB")
+        # Validate image type
+        img = Image.open(io.BytesIO(await image.read())).convert("RGB")
     except Exception as e:
-        return jsonify({"error": f"Invalid image format: {str(e)}"}), 400
-
-    image = transform(image).unsqueeze(0)  # Add batch dimension
+        raise HTTPException(status_code=400, detail=f"Invalid image format: {str(e)}")
+    
+    img = transform(img).unsqueeze(0)  # Add batch dimension
 
     with torch.no_grad():
-        output = model(image)
-        probabilities = torch.nn.functional.softmax(output, dim=1)  # Convert logits to probabilities
-        confidence, prediction_index = torch.max(probabilities, dim=1)  # Get the highest confidence score
+        output = model(img)
+        probabilities = torch.nn.functional.softmax(output, dim=1)
+        confidence, prediction_index = torch.max(probabilities, dim=1)
 
-    confidence_percentage = round(confidence.item() * 100, 2)  # Convert to percentage
+    confidence_percentage = round(confidence.item() * 100, 2)
 
-    if confidence_percentage < 81:  
-        return jsonify({
-            "prediction": "Unknown class",
-            "message": "Please upload a different image with a clearer view of the plant."
-        })
-
-    predicted_class = class_names[prediction_index.item()]
+    if confidence_percentage < 81:
+        return JSONResponse(
+            content={"prediction": "Unknown class", "message": "Upload a clearer plant image."},
+            status_code=200
+        )
     
-    # Retrieve disease information from dataset using index number
+    predicted_class = class_names[prediction_index.item()]
     disease_info = disease_info_df.iloc[prediction_index.item()]
     
-    description = disease_info['description'] if 'description' in disease_info else "No additional information available."
-    steps = disease_info['Possible Steps'] if 'Possible Steps' in disease_info else "No treatment steps available."
-    image_url = disease_info['image_url'] if 'image_url' in disease_info else ""
-    
-    return jsonify({
+    return {
         "prediction": predicted_class,
-        "confidence": f"{confidence_percentage}%",  # Format as percentage
-        "description": description,
-        "possible_steps": steps,
-        # "image_url": image_url
-    })
+        "confidence": f"{confidence_percentage}%",
+        "description": disease_info.get("description", "No additional information available."),
+        "possible_steps": disease_info.get("Possible Steps", "No treatment steps available."),
+    }
 
-
-if __name__ == "__main__":
-    port=int(os.environ.get("PORT",4000))
-    app.run(host="0.0.0.0", port=port)
+# Run with: uvicorn filename:app --host 0.0.0.0 --port 4000 --reload
